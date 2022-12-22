@@ -1,12 +1,14 @@
-﻿# constants
+# constants
 $XL_LINESTYLE_NONE = -4142
 $XL_LINESTYLE_CONTINUOUS = 1
+$XL_BORDERS_WEIGHT_THICK = 4
 $XL_ALIGNMENT_CENTER = -4108
 $XL_ALIGNMENT_LEFT = -4131
 $XL_COLORINDEX_YELLOW = 6
 $XL_COLORINDEX_GREEN_BRIGHT = 14
 $XL_COLORINDEX_GREEN_PALE = 43
 $XL_COLORINDEX_PURPLE = 47
+$XL_NUMBERFORMAT_CURRENCY_RUB = "# ##0,00 ₽"
 $FROM_PS_TO_XL_COLORINDEX_PURPLE_PALE = 39
 $FROM_PS_TO_XL_COLORINDEX_YELLOW = 27
 $WEEKDAYS = @("Понедельник", "Вторник", "Среда", "Четверг", "Пятница")
@@ -83,8 +85,8 @@ $resultWorkbook = $excel.workbooks.add()
 # creating right amount of worksheets
 $worksheetCounter = 1
 for ($i = 0; $i -lt 5; $i++) {
-    if ($menu.day[$i] -ne "") {
-        $worksheetCounter++;
+    if ($menu.day[$i].name -ne "") {
+        $worksheetCounter++
     }
 }
 while ($resultWorkbook.sheets.count -lt $worksheetCounter) {
@@ -137,7 +139,6 @@ for ($dayCounter = 0; $dayCounter -lt 5; $dayCounter++) {
     }
     $currSheet.rows.item(3).wrapText = $true
     # formatting whole sheet
-    $currSheet.rows.borders.lineStyle = $XL_LINESTYLE_CONTINUOUS
     $currSheet.usedRange.columns.columnWidth = 16
     $currSheet.rows.font.size = 12
     # formatting text alignment in columns
@@ -293,15 +294,18 @@ for ($sheetCounter = 1; $sheetCounter -lt $sheetsAmount; $sheetCounter++) {
 
     # entering row titles and formatting them
     $resultSheet.cells($currRow, 1) = "Цена"
-    $resultSheet.rows($currRow).numberFormat = "# ##0,00 ₽"
+    $resultSheet.rows($currRow).numberFormat = $XL_NUMBERFORMAT_CURRENCY_RUB
     $resultSheet.cells($currRow + 1, 1) = "Кол-во"
     $resultSheet.cells($currRow + 2, 1) = "Сумма"
-    $resultSheet.rows($currRow + 2).numberFormat = "# ##0,00 ₽"
+    $resultSheet.rows($currRow + 2).numberFormat = $XL_NUMBERFORMAT_CURRENCY_RUB
     # entering formulas counting results of the first dish (then they are copied and pasted for all other dishes)
     $resultSheet.cells.item($currRow + 1, 2).formulaLocal = "=СУММ($($currDaySheet.name)!B4:B500)"
     $amountSource = $resultSheet.cells($currRow + 1, 2)
     $resultSheet.cells.item($currRow + 2, 2).formulaLocal = "=B$($currRow)*B$($currRow+1)"
     $sumSource = $resultSheet.cells($currRow + 2, 2)
+    # for formulas that count total sum for every day
+    $formulaMainDishesSumTotal = ""
+    $formulaDessertsSumTotal = ""
     for ($submenuCounter = 0; $submenuCounter -lt 2; $submenuCounter++) {
         $submenu = $day.submenu[$submenuCounter]
         for ($dishCounter = 0; $dishCounter -lt 5; $dishCounter++) {
@@ -319,13 +323,26 @@ for ($sheetCounter = 1; $sheetCounter -lt $sheetsAmount; $sheetCounter++) {
             $sumSource.copy()
             $sumDest = $resultSheet.cells($currRow + 2, $currCol)
             $resultSheet.paste($sumDest)
+            # 4) filling in content of formulas that count total sum for every day
+            # for desserts
+            if ( (($dishCounter -eq 3) -and ($submenu.dish[4].name -eq "")) -or ($dishCounter -eq 4) ) { 
+                $formulaDessertsSumTotal += $resultSheet.cells($currRow + 2, $currCol).address($false, $false) + ";"
+            # for main dishes
+            } else {
+                $formulaMainDishesSumTotal += $resultSheet.cells($currRow + 2, $currCol).address($false, $false) + ";"
+            }
         }
     }
+    # counting total sum for the current day
+    $resultSheet.cells($currRow + 2, 13).formulaLocal = "=СУММ(" + $formulaMainDishesSumTotal + ")"
+    $resultSheet.cells($currRow + 2, 14).formulaLocal = "=СУММ(" + $formulaDessertsSumTotal + ")"
+    # formatting the row with sums
+    $range = $resultSheet.range($resultSheet.cells($currRow + 2, 1), $resultSheet.cells($currRow + 2, 14))
+    $range.borders.lineStyle = $XL_LINESTYLE_CONTINUOUS
 
     $currRow += 4
 }
 # formatting the result-sheet
-$resultSheet.usedRange.rows.borders.lineStyle = $XL_LINESTYLE_NONE
 $resultSheet.usedRange.columns.columnWidth = 16
 $resultSheet.rows.horizontalAlignment = $XL_ALIGNMENT_CENTER
 $resultSheet.rows.verticalAlignment = $XL_ALIGNMENT_CENTER
@@ -334,11 +351,33 @@ $resultSheet.columns(1).font.bold = $true
 $resultSheet.activate()
 $excel.activeWindow.zoom = 70
 
+# counting total sum for all days
+$lastRow = $resultSheet.usedRange.rows.count + 1
+$resultSheet.cells($lastRow, 13).formulaLocal = "=СУММ(M1:M$($lastRow - 1))" # "M" == column 13
+$resultSheet.cells($lastRow, 14).formulaLocal = "=СУММ(N1:N$($lastRow - 1))" # "N" == column 14
+# formatting the cells with total sums
+for ($i = 0; $i -lt 2; $i++) {
+    $resultSheet.cells($lastRow, 13 + $i).borders.lineStyle = $XL_LINESTYLE_CONTINUOUS
+    $resultSheet.cells($lastRow, 13 + $i).borders.weight = $XL_BORDERS_WEIGHT_THICK
+}
+$resultSheet.columns(13).interior.colorIndex = $FROM_PS_TO_XL_COLORINDEX_YELLOW
+$resultSheet.columns(14).interior.colorIndex = $FROM_PS_TO_XL_COLORINDEX_PURPLE_PALE
+for ($i = 0; $i -lt 2; $i++) {
+    $resultSheet.columns(13 + $i).numberFormat = $XL_NUMBERFORMAT_CURRENCY_RUB
+    $resultSheet.columns(13 + $i).columnWidth = 42
+}
+# creating total sum titles
+$resultSheet.cells(1, 13) = "Итого Меню"
+$resultSheet.cells(1, 13).font.bold = $true
+$resultSheet.cells(1, 14) = "Итого Десерты"
+$resultSheet.cells(1, 14).font.bold = $true
+
 
 
 # 6. formatting the day-sheets
 for ($i = 1; $i -lt $resultWorkbook.sheets.count; $i++) {
     $currSheet = $resultWorkbook.sheets($i)
+    $currSheet.rows.borders.lineStyle = $XL_LINESTYLE_CONTINUOUS
     # formatting columns that contain names
     for ($k = 0; $k -lt 2; $k++) {
         $col = $menu.day[$i - 1].submenu[$k].dish[0].resultCol - 1
